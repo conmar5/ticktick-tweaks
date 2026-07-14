@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         TickTick â€” Kanban detail as resizable right sidebar
+// @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
 // @version      1.2.0
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
-// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) â€” the List view side panel is left untouched.
+// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched.
 // @author       Mark
 // @match        https://ticktick.com/*
 // @match        https://*.ticktick.com/*
@@ -20,7 +20,7 @@
 
   var KEY = 'tt_sidebar_width_v2'; // localStorage key for remembered width (v2 = adopt new wider default once)
   var MINW = 320;                 // smallest allowed width (px)
-  var DEFAULT = 600;              // starting width (px) â€” drag the edge to change; your choice is remembered
+  var DEFAULT = 600;              // starting width (px) — drag the edge to change; your choice is remembered
   var root = document.documentElement;
 
   var w = parseInt(localStorage.getItem(KEY), 10) || DEFAULT;
