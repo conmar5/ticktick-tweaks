@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.4.0
+// @version      1.5.0
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
-// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds a "Work in Claude" button that opens a Cowork session for the open task.
+// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds a "Work in Claude" button: if the open card has a "Project ID:" line, it opens that Claude Project; otherwise it opens a fresh Cowork session for the task.
 // @author       Mark
 // @match        https://ticktick.com/*
 // @match        https://*.ticktick.com/*
@@ -77,8 +77,9 @@
   document.body.appendChild(grip);
 
   // ---- Claude action bar -----------------------------------------------------
-  // Reads the currently open task (title + URL) at click time and opens a Claude
-  // Cowork session via the claude:// deep-link scheme. Requires Claude Desktop.
+  // If the open card's notes contain a "Project ID:" line, the button opens that
+  // Claude Project (claude://claude.ai/project/{id}); otherwise it opens a fresh
+  // Cowork session for the task. Requires Claude Desktop (claude:// scheme).
   function currentTask() {
     var panel = document.querySelector('.out-detail.out-detail-pop');
     var title = '';
@@ -88,6 +89,23 @@
     }
     if (!title) title = (document.title || '').replace(/\s*[|-].*$/, '').trim();
     return { title: title || 'this task', url: location.href };
+  }
+
+  // Look for a "Project ID: <value>" line anywhere in the open card and return the
+  // bare project id. Accepts a raw UUID, a claude.ai/project/<id> URL, or a
+  // claude://.../project/<id> link. Returns '' if absent/blank/placeholder.
+  function projectIdFromCard() {
+    var panel = document.querySelector('.out-detail.out-detail-pop');
+    if (!panel) return '';
+    var text = panel.innerText || panel.textContent || '';
+    var m = text.match(/(?:^|\n)\s*project\s*id\s*[:=]\s*([^\n]*)/i);
+    if (!m) return '';
+    var raw = (m[1] || '').trim();
+    if (!raw) return '';
+    var urlMatch = raw.match(/project\/([A-Za-z0-9_-]{8,})/i);
+    var id = urlMatch ? urlMatch[1] : raw;
+    id = id.replace(/[^A-Za-z0-9_-]/g, '');
+    return id.length >= 8 ? id : '';
   }
 
   function fire(url) {
@@ -126,7 +144,12 @@
   }
 
   addBtn('Work in Claude', function () {
-    fire(workLink(currentTask()));
+    var pid = projectIdFromCard();
+    if (pid) {
+      fire('claude://claude.ai/project/' + pid); // open the card's Claude Project
+    } else {
+      fire(workLink(currentTask()));             // no project set -> fresh Cowork session
+    }
   });
   document.body.appendChild(bar);
 
