@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.3.0
+// @version      1.4.0
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
-// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds a Claude action bar (Work in Claude / Feedback / New chat) for the open task.
+// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds a "Work in Claude" button that opens a Cowork session for the open task.
 // @author       Mark
 // @match        https://ticktick.com/*
 // @match        https://*.ticktick.com/*
@@ -59,7 +59,6 @@
     '  border-top:1px solid rgba(128,128,128,0.25);',
     '  background:rgba(128,128,128,0.10);',
     '}',
-    '#tt-claude-bar .tt-claude-label{ font:600 11px/1 -apple-system,system-ui,sans-serif; opacity:0.55; margin-right:2px; }',
     '#tt-claude-bar button{',
     '  font:12px/1.2 -apple-system,system-ui,sans-serif; padding:6px 10px;',
     '  border:1px solid rgba(128,128,128,0.4); border-radius:6px;',
@@ -78,8 +77,8 @@
   document.body.appendChild(grip);
 
   // ---- Claude action bar -----------------------------------------------------
-  // Reads the currently open task (title + URL) at click time and opens Claude
-  // Desktop via the claude:// deep-link scheme. Requires Claude Desktop installed.
+  // Reads the currently open task (title + URL) at click time and opens a Claude
+  // Cowork session via the claude:// deep-link scheme. Requires Claude Desktop.
   function currentTask() {
     var panel = document.querySelector('.out-detail.out-detail-pop');
     var title = '';
@@ -106,24 +105,12 @@
     var prompt =
       'Let\'s work on my TickTick task "' + title + '".\n' +
       'It is on my Opportunity Pipeline board - open it via the TickTick connector (the full brief is in the notes). Card link: ' + t.url + '\n' +
-      'Help me dig into it, answer my questions, and update the card (notes / comments) as we go.';
-    return 'claude://cowork/new?q=' + encodeURIComponent(prompt);
-  }
-
-  function feedbackLink(t, note) {
-    var prompt =
-      'Add a comment to my TickTick task "' + t.title + '" (' + t.url + ') that starts exactly with "@claude " ' +
-      'followed by this feedback:\n' + note + '\n' +
-      'Post it via the TickTick connector, then confirm. (The @claude prefix is how my daily scout picks up feedback.)';
+      'First, quickly review my recent Claude sessions for any earlier or related work on this opportunity; if you find some, tell me which and offer to continue from there. Then help me dig in, answer questions, and update the card as we go.';
     return 'claude://cowork/new?q=' + encodeURIComponent(prompt);
   }
 
   var bar = document.createElement('div');
   bar.id = 'tt-claude-bar';
-  var label = document.createElement('span');
-  label.className = 'tt-claude-label';
-  label.textContent = 'Claude';
-  bar.appendChild(label);
 
   function addBtn(text, handler) {
     var b = document.createElement('button');
@@ -140,15 +127,6 @@
 
   addBtn('Work in Claude', function () {
     fire(workLink(currentTask()));
-  });
-  addBtn('Feedback', function () {
-    var t = currentTask();
-    var note = window.prompt('Feedback for the scout (posted as an "@claude" comment on this card):', '');
-    if (note == null || !note.trim()) return;
-    fire(feedbackLink(t, note.trim()));
-  });
-  addBtn('New chat', function () {
-    fire('claude://claude.ai/new');
   });
   document.body.appendChild(bar);
 
