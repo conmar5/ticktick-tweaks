@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.2.0
+// @version      1.2.1
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched.
