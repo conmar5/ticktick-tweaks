@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.7.0
+// @version      1.8.0
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
-// @description  Optionally docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. Toggle between the sidebar and TickTick's default popup with the "Sidebar" button; the choice and width are remembered. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds two Claude buttons: "Open Project" opens the Claude Project linked by the card's "Project ID:" line (and explains how to link one if it's missing), and "New chat" opens a Cowork session prefilled for the task.
+// @description  Optionally docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. A toggle icon beside the priority flag switches between the sidebar and TickTick's default popup; the choice and width are remembered. Adds "Project" and "Chat" buttons into the task detail's own footer toolbar: "Project" opens the Claude Project linked by the card's "Project ID:" line (and explains how to link one if it's missing), "Chat" opens a Cowork session prefilled for the task.
 // @author       Mark
 // @match        https://ticktick.com/*
 // @match        https://*.ticktick.com/*
@@ -30,6 +30,13 @@
   // Sidebar mode is on by default; 'off' leaves TickTick's popup exactly as it ships.
   var sidebarOn = localStorage.getItem(MODE_KEY) !== 'off';
 
+  // TickTick's own anchors inside the task-detail popup (verified against the live DOM):
+  //   header row  .header.td-header .toolBar.td-bar .td-btns   -> [check, due-date, .td-priority(flag)]
+  //   footer bar  .td-footer .toolBar .td-items                -> the A / comment / more icon group
+  var SEL_PANEL = '.out-detail.out-detail-pop';
+  var SEL_HEADER_ROW = '.header.td-header .toolBar.td-bar .td-btns';
+  var SEL_FOOTER_GROUP = '.td-footer .toolBar .td-items';
+
   var css = [
     /* every panel rule is gated behind body.tt-sidebar-on, so toggling the class
        restores TickTick's stock popup with no other side effects */
@@ -46,7 +53,6 @@
     '}',
     'body.tt-sidebar-on .out-detail.out-detail-pop .task-detail{',
     '  height:100vh !important; max-height:none !important;',
-    '  padding-bottom:52px !important;', // leave room so content scrolls clear of the Claude bar
     '}',
     /* the drag handle sits on the panel's left edge, full height (sidebar mode only) */
     '#tt-sidebar-grip{',
@@ -56,27 +62,19 @@
     '}',
     '#tt-sidebar-grip:hover, #tt-sidebar-grip.dragging{ background:rgba(74,144,226,0.6); }',
     'body.tt-resizing{ user-select:none !important; cursor:col-resize !important; }',
-    /* Claude action bar — shown in both modes while a task is open */
-    '#tt-claude-bar{',
-    '  position:fixed; right:0; bottom:0; box-sizing:border-box;',
-    '  width:auto; max-width:90vw;',
-    '  display:none; gap:6px; align-items:center; flex-wrap:wrap;',
-    '  padding:8px 10px; z-index:1051;',
-    '  border-top:1px solid rgba(128,128,128,0.25);',
-    '  border-left:1px solid rgba(128,128,128,0.25);',
-    '  background:rgba(128,128,128,0.10);',
+    /* our buttons, injected into TickTick's own footer toolbar */
+    '.tt-c-btn{',
+    '  font:12px/1.2 -apple-system,system-ui,sans-serif; padding:4px 8px; margin-right:8px;',
+    '  border:1px solid rgba(128,128,128,0.4); border-radius:5px; background:transparent;',
+    '  color:inherit; cursor:pointer; white-space:nowrap; opacity:0.85;',
     '}',
-    /* in sidebar mode the bar spans the panel and needs no left edge */
-    'body.tt-sidebar-on #tt-claude-bar{',
-    '  width:var(--tt-sidebar-w,460px); border-left:none;',
+    '.tt-c-btn:hover{ opacity:1; border-color:rgba(74,144,226,0.9); background:rgba(74,144,226,0.15); }',
+    /* view toggle, injected beside the priority flag */
+    '.tt-c-toggle{',
+    '  display:flex; align-items:center; cursor:pointer; padding:0 4px 0 8px; opacity:0.45;',
     '}',
-    '#tt-claude-bar button{',
-    '  font:12px/1.2 -apple-system,system-ui,sans-serif; padding:6px 10px;',
-    '  border:1px solid rgba(128,128,128,0.4); border-radius:6px;',
-    '  background:rgba(128,128,128,0.12); color:inherit; cursor:pointer; white-space:nowrap;',
-    '}',
-    '#tt-claude-bar button:hover{ border-color:rgba(74,144,226,0.9); background:rgba(74,144,226,0.18); }',
-    '#tt-claude-bar button.tt-toggle{ margin-left:auto; opacity:0.75; }'
+    '.tt-c-toggle:hover{ opacity:0.9; }',
+    'body.tt-sidebar-on .tt-c-toggle{ opacity:0.95; color:#4a90e2; }'
   ].join('\n');
 
   var style = document.createElement('style');
@@ -88,13 +86,9 @@
   grip.id = 'tt-sidebar-grip';
   document.body.appendChild(grip);
 
-  // ---- Claude action bar -----------------------------------------------------
-  // "Open Project" opens the Claude Project linked by the card's "Project ID:" line
-  // (claude://claude.ai/project/{id}), or explains how to link one if it's missing.
-  // "New chat" opens a Cowork session prefilled for the task. No silent fallback:
-  // each button does exactly one thing. Requires Claude Desktop (claude:// scheme).
+  // ---- helpers ---------------------------------------------------------------
   function currentTask() {
-    var panel = document.querySelector('.out-detail.out-detail-pop');
+    var panel = document.querySelector(SEL_PANEL);
     var title = '';
     if (panel) {
       var el = panel.querySelector('.task-detail .title, textarea.title-input, .title-input, [contenteditable="true"], .title, h1, h2');
@@ -109,7 +103,7 @@
   // writes that variant). Accepts a raw UUID, a claude.ai/project/<id> URL, or a
   // claude://.../project/<id> link. Returns '' if absent/blank/placeholder.
   function projectIdFromCard() {
-    var panel = document.querySelector('.out-detail.out-detail-pop');
+    var panel = document.querySelector(SEL_PANEL);
     if (!panel) return '';
     var text = panel.innerText || panel.textContent || '';
     var m = text.match(/(?:^|\n)\s*(?:claude\s+)?project\s*id\s*[:=]\s*([^\n]*)/i);
@@ -141,27 +135,10 @@
     return 'claude://cowork/new?q=' + encodeURIComponent(prompt);
   }
 
-  var bar = document.createElement('div');
-  bar.id = 'tt-claude-bar';
-
-  function addBtn(text, handler, cls) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = text;
-    if (cls) b.className = cls;
-    b.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      handler();
-    });
-    bar.appendChild(b);
-    return b;
-  }
-
-  addBtn('Open Project', function () {
+  function openProject() {
     var pid = projectIdFromCard();
     if (pid) {
-      fire('claude://claude.ai/project/' + pid); // open the card's Claude Project
+      fire('claude://claude.ai/project/' + pid);
       return;
     }
     window.alert(
@@ -172,48 +149,89 @@
       'into the project\'s "Set project instructions".\n' +
       '3. Copy the project\'s ID from its URL (claude.ai/project/<ID>).\n' +
       '4. Paste it into this card\'s "Project ID:" line at the top.\n\n' +
-      'In the meantime, "New chat" works on this card without a project.'
+      'In the meantime, "Chat" works on this card without a project.'
     );
-  });
-  addBtn('New chat', function () {
-    fire(workLink(currentTask()));               // Cowork session prefilled for this task
-  });
+  }
 
-  // View toggle: our sidebar vs TickTick's default popup. Remembered across reloads.
-  var toggleBtn = addBtn('Sidebar: on', function () {
+  function toggleMode() {
     sidebarOn = !sidebarOn;
     localStorage.setItem(MODE_KEY, sidebarOn ? 'on' : 'off');
     applyMode();
-  }, 'tt-toggle');
-
-  document.body.appendChild(bar);
-
-  // Grip only makes sense in sidebar mode; the Claude bar shows in both.
-  var isOpen = false;
-  function refreshChrome() {
-    grip.style.display = (isOpen && sidebarOn) ? 'block' : 'none';
-    bar.style.display = isOpen ? 'flex' : 'none';
   }
+
   function applyMode() {
     document.body.classList.toggle('tt-sidebar-on', sidebarOn);
-    toggleBtn.textContent = sidebarOn ? 'Sidebar: on' : 'Sidebar: off';
-    refreshChrome();
+    refreshGrip();
   }
-  applyMode();
 
-  function updateChrome() {
-    var panel = document.querySelector('.out-detail.out-detail-pop');
-    var open = !!panel;
-    if (open === isOpen) return;
-    isOpen = open;
-    refreshChrome();
-    if (open) {
-      var bg = getComputedStyle(panel).backgroundColor;
-      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') bar.style.background = bg;
+  function mkBtn(text, tip, handler) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tt-c-btn';
+    b.textContent = text;
+    b.title = tip;
+    b.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      handler();
+    });
+    return b;
+  }
+
+  // ---- inject our controls into TickTick's own task-detail chrome -------------
+  // React re-renders the popup, so this runs on every mutation and is idempotent.
+  function injectPanelUI(panel) {
+    var row = panel.querySelector(SEL_HEADER_ROW);
+    if (row && !row.querySelector('.tt-c-toggle')) {
+      var t = document.createElement('div');
+      t.className = 'btn-item tt-c-toggle';
+      t.title = 'Switch between the Claude sidebar and TickTick\'s default popup';
+      t.innerHTML =
+        '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+        '<rect x="9.5" y="3.5" width="5" height="9" fill="currentColor" opacity="0.6"/></svg>';
+      t.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleMode();
+      });
+      row.appendChild(t); // sits immediately after .td-priority (the flag)
+    }
+
+    var grp = panel.querySelector(SEL_FOOTER_GROUP);
+    if (grp && !grp.querySelector('.tt-c-btn')) {
+      var chat = mkBtn('Chat', 'Start a Claude Cowork chat on this card', function () {
+        fire(workLink(currentTask()));
+      });
+      var proj = mkBtn('Project', 'Open this card\'s linked Claude Project', openProject);
+      grp.insertBefore(chat, grp.firstChild);
+      grp.insertBefore(proj, grp.firstChild);
     }
   }
-  new MutationObserver(updateChrome).observe(document.body, { childList: true, subtree: true });
-  updateChrome();
+
+  var panelOpen = false;
+  function refreshGrip() {
+    grip.style.display = (panelOpen && sidebarOn) ? 'block' : 'none';
+  }
+
+  function tick() {
+    var panel = document.querySelector(SEL_PANEL);
+    panelOpen = !!panel;
+    if (panel) injectPanelUI(panel);
+    refreshGrip();
+  }
+
+  applyMode();
+
+  // rAF-debounced so we don't re-scan on every keystroke inside the notes
+  var pending = false;
+  function schedule() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () { pending = false; tick(); });
+  }
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  tick();
 
   // Drag to resize (sidebar mode only).
   var dragging = false;
