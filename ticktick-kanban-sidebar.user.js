@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.5.1
+// @version      1.6.0
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
-// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds a "Work in Claude" button: if the open card has a "Project ID:" line, it opens that Claude Project; otherwise it opens a fresh Cowork session for the task.
+// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds two Claude buttons: "Open Project" opens the Claude Project linked by the card's "Project ID:" line (and explains how to link one if it's missing), and "New chat" opens a Cowork session prefilled for the task.
 // @author       Mark
 // @match        https://ticktick.com/*
 // @match        https://*.ticktick.com/*
@@ -77,9 +77,10 @@
   document.body.appendChild(grip);
 
   // ---- Claude action bar -----------------------------------------------------
-  // If the open card's notes contain a "Project ID:" line, the button opens that
-  // Claude Project (claude://claude.ai/project/{id}); otherwise it opens a fresh
-  // Cowork session for the task. Requires Claude Desktop (claude:// scheme).
+  // "Open Project" opens the Claude Project linked by the card's "Project ID:" line
+  // (claude://claude.ai/project/{id}), or explains how to link one if it's missing.
+  // "New chat" opens a Cowork session prefilled for the task. No silent fallback:
+  // each button does exactly one thing. Requires Claude Desktop (claude:// scheme).
   function currentTask() {
     var panel = document.querySelector('.out-detail.out-detail-pop');
     var title = '';
@@ -144,13 +145,25 @@
     return b;
   }
 
-  addBtn('Work in Claude', function () {
+  addBtn('Open Project', function () {
     var pid = projectIdFromCard();
     if (pid) {
       fire('claude://claude.ai/project/' + pid); // open the card's Claude Project
-    } else {
-      fire(workLink(currentTask()));             // no project set -> fresh Cowork session
+      return;
     }
+    window.alert(
+      'No Claude Project is linked to this card yet.\n\n' +
+      'To link one:\n' +
+      '1. Create a Project in Claude for this opportunity.\n' +
+      '2. Copy the "Claude Project Instructions" block from the bottom of this card ' +
+      'into the project\'s "Set project instructions".\n' +
+      '3. Copy the project\'s ID from its URL (claude.ai/project/<ID>).\n' +
+      '4. Paste it into this card\'s "Project ID:" line at the top.\n\n' +
+      'In the meantime, "New chat" works on this card without a project.'
+    );
+  });
+  addBtn('New chat', function () {
+    fire(workLink(currentTask()));               // Cowork session prefilled for this task
   });
   document.body.appendChild(bar);
 
