@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.6.0
+// @version      1.7.0
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
-// @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds two Claude buttons: "Open Project" opens the Claude Project linked by the card's "Project ID:" line (and explains how to link one if it's missing), and "New chat" opens a Cowork session prefilled for the task.
+// @description  Optionally docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. Toggle between the sidebar and TickTick's default popup with the "Sidebar" button; the choice and width are remembered. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds two Claude buttons: "Open Project" opens the Claude Project linked by the card's "Project ID:" line (and explains how to link one if it's missing), and "New chat" opens a Cowork session prefilled for the task.
 // @author       Mark
 // @match        https://ticktick.com/*
 // @match        https://*.ticktick.com/*
@@ -18,7 +18,8 @@
   // Only run in the top window, not in any embedded iframes.
   if (window.top !== window.self) return;
 
-  var KEY = 'tt_sidebar_width_v2'; // localStorage key for remembered width (v2 = adopt new wider default once)
+  var KEY = 'tt_sidebar_width_v2';  // localStorage key for remembered width
+  var MODE_KEY = 'tt_sidebar_mode'; // 'on' = our sidebar, 'off' = TickTick's default popup
   var MINW = 320;                 // smallest allowed width (px)
   var DEFAULT = 600;              // starting width (px) — drag the edge to change; your choice is remembered
   var root = document.documentElement;
@@ -26,8 +27,13 @@
   var w = parseInt(localStorage.getItem(KEY), 10) || DEFAULT;
   root.style.setProperty('--tt-sidebar-w', w + 'px');
 
+  // Sidebar mode is on by default; 'off' leaves TickTick's popup exactly as it ships.
+  var sidebarOn = localStorage.getItem(MODE_KEY) !== 'off';
+
   var css = [
-    '.out-detail.out-detail-pop{',
+    /* every panel rule is gated behind body.tt-sidebar-on, so toggling the class
+       restores TickTick's stock popup with no other side effects */
+    'body.tt-sidebar-on .out-detail.out-detail-pop{',
     '  position:fixed !important; top:0 !important; right:0 !important;',
     '  left:auto !important; bottom:0 !important;',
     '  width:var(--tt-sidebar-w,460px) !important; max-width:90vw !important;',
@@ -38,11 +44,11 @@
     // 1050 = TickTick's own popup layer, so its dropdown menus (more, tags, dates) still open above the panel
     '  z-index:1050 !important;',
     '}',
-    '.out-detail.out-detail-pop .task-detail{',
+    'body.tt-sidebar-on .out-detail.out-detail-pop .task-detail{',
     '  height:100vh !important; max-height:none !important;',
     '  padding-bottom:52px !important;', // leave room so content scrolls clear of the Claude bar
     '}',
-    /* the drag handle sits on the panel's left edge, full height */
+    /* the drag handle sits on the panel's left edge, full height (sidebar mode only) */
     '#tt-sidebar-grip{',
     '  position:fixed; top:0; bottom:0; width:10px;',
     '  right:var(--tt-sidebar-w,460px); margin-right:-5px;',
@@ -50,21 +56,27 @@
     '}',
     '#tt-sidebar-grip:hover, #tt-sidebar-grip.dragging{ background:rgba(74,144,226,0.6); }',
     'body.tt-resizing{ user-select:none !important; cursor:col-resize !important; }',
-    /* Claude action bar, pinned to the bottom of the sidebar while a task is open */
+    /* Claude action bar — shown in both modes while a task is open */
     '#tt-claude-bar{',
     '  position:fixed; right:0; bottom:0; box-sizing:border-box;',
-    '  width:var(--tt-sidebar-w,460px); max-width:90vw;',
+    '  width:auto; max-width:90vw;',
     '  display:none; gap:6px; align-items:center; flex-wrap:wrap;',
     '  padding:8px 10px; z-index:1051;',
     '  border-top:1px solid rgba(128,128,128,0.25);',
+    '  border-left:1px solid rgba(128,128,128,0.25);',
     '  background:rgba(128,128,128,0.10);',
+    '}',
+    /* in sidebar mode the bar spans the panel and needs no left edge */
+    'body.tt-sidebar-on #tt-claude-bar{',
+    '  width:var(--tt-sidebar-w,460px); border-left:none;',
     '}',
     '#tt-claude-bar button{',
     '  font:12px/1.2 -apple-system,system-ui,sans-serif; padding:6px 10px;',
     '  border:1px solid rgba(128,128,128,0.4); border-radius:6px;',
     '  background:rgba(128,128,128,0.12); color:inherit; cursor:pointer; white-space:nowrap;',
     '}',
-    '#tt-claude-bar button:hover{ border-color:rgba(74,144,226,0.9); background:rgba(74,144,226,0.18); }'
+    '#tt-claude-bar button:hover{ border-color:rgba(74,144,226,0.9); background:rgba(74,144,226,0.18); }',
+    '#tt-claude-bar button.tt-toggle{ margin-left:auto; opacity:0.75; }'
   ].join('\n');
 
   var style = document.createElement('style');
@@ -132,10 +144,11 @@
   var bar = document.createElement('div');
   bar.id = 'tt-claude-bar';
 
-  function addBtn(text, handler) {
+  function addBtn(text, handler, cls) {
     var b = document.createElement('button');
     b.type = 'button';
     b.textContent = text;
+    if (cls) b.className = cls;
     b.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -165,17 +178,35 @@
   addBtn('New chat', function () {
     fire(workLink(currentTask()));               // Cowork session prefilled for this task
   });
+
+  // View toggle: our sidebar vs TickTick's default popup. Remembered across reloads.
+  var toggleBtn = addBtn('Sidebar: on', function () {
+    sidebarOn = !sidebarOn;
+    localStorage.setItem(MODE_KEY, sidebarOn ? 'on' : 'off');
+    applyMode();
+  }, 'tt-toggle');
+
   document.body.appendChild(bar);
 
-  // Show the grip + Claude bar only while the popup is open; match the bar to the panel theme.
-  var wasOpen = false;
+  // Grip only makes sense in sidebar mode; the Claude bar shows in both.
+  var isOpen = false;
+  function refreshChrome() {
+    grip.style.display = (isOpen && sidebarOn) ? 'block' : 'none';
+    bar.style.display = isOpen ? 'flex' : 'none';
+  }
+  function applyMode() {
+    document.body.classList.toggle('tt-sidebar-on', sidebarOn);
+    toggleBtn.textContent = sidebarOn ? 'Sidebar: on' : 'Sidebar: off';
+    refreshChrome();
+  }
+  applyMode();
+
   function updateChrome() {
     var panel = document.querySelector('.out-detail.out-detail-pop');
     var open = !!panel;
-    if (open === wasOpen) return;
-    wasOpen = open;
-    grip.style.display = open ? 'block' : 'none';
-    bar.style.display = open ? 'flex' : 'none';
+    if (open === isOpen) return;
+    isOpen = open;
+    refreshChrome();
     if (open) {
       var bg = getComputedStyle(panel).backgroundColor;
       if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') bar.style.background = bg;
@@ -184,7 +215,7 @@
   new MutationObserver(updateChrome).observe(document.body, { childList: true, subtree: true });
   updateChrome();
 
-  // Drag to resize.
+  // Drag to resize (sidebar mode only).
   var dragging = false;
   grip.addEventListener('pointerdown', function (e) {
     dragging = true;
