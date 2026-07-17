@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TickTick — Kanban detail as resizable right sidebar
 // @namespace    cowork
-// @version      1.5.0
+// @version      1.5.1
 // @downloadURL  https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @updateURL    https://raw.githubusercontent.com/conmar5/ticktick-tweaks/main/ticktick-kanban-sidebar.user.js
 // @description  Docks TickTick's Kanban/board task-detail popup into a full-height panel pinned to the right edge, with a draggable left edge to resize. The width is remembered across tasks and reloads. Only affects the floating popup (Kanban / Timeline / Calendar) — the List view side panel is left untouched. Adds a "Work in Claude" button: if the open card has a "Project ID:" line, it opens that Claude Project; otherwise it opens a fresh Cowork session for the task.
@@ -92,13 +92,14 @@
   }
 
   // Look for a "Project ID: <value>" line anywhere in the open card and return the
-  // bare project id. Accepts a raw UUID, a claude.ai/project/<id> URL, or a
+  // bare project id. Also accepts the "Claude Project ID:" label (the daily scout
+  // writes that variant). Accepts a raw UUID, a claude.ai/project/<id> URL, or a
   // claude://.../project/<id> link. Returns '' if absent/blank/placeholder.
   function projectIdFromCard() {
     var panel = document.querySelector('.out-detail.out-detail-pop');
     if (!panel) return '';
     var text = panel.innerText || panel.textContent || '';
-    var m = text.match(/(?:^|\n)\s*project\s*id\s*[:=]\s*([^\n]*)/i);
+    var m = text.match(/(?:^|\n)\s*(?:claude\s+)?project\s*id\s*[:=]\s*([^\n]*)/i);
     if (!m) return '';
     var raw = (m[1] || '').trim();
     if (!raw) return '';
